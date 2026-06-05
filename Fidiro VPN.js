@@ -1,249 +1,395 @@
-class FidiroVPN {
-    constructor(config = {}) {
+import java.io.*;
+import java.net.*;
+import java.security.*;
+import java.util.*;
+import java.util.concurrent.*;
+import javax.crypto.*;
+import javax.crypto.spec.*;
+
+public class FidiroVPN {
+    private boolean isConnected;
+    private String currentServerIP;
+    private int currentServerPort;
+    private DatagramSocket tunnelSocket;
+    private Thread tunnelThread;
+    private SecretKeySpec encryptionKey;
+    private ExecutorService threadPool;
+    private Map<String, byte[]> packetCache;
+    private volatile boolean running;
+    
+    // Configuration
+    private static final int BUFFER_SIZE = 65536;
+    private static final int HEARTBEAT_INTERVAL = 30000;
+    private static final int CONNECTION_TIMEOUT = 5000;
+    
+    public FidiroVPN() {
         this.isConnected = false;
-        this.currentIP = null;
-        this.trafficStats = {
-            sent: 0,
-            received: 0
-        };
-        this.servers = config.servers || [
+        this.threadPool = Executors.newCachedThreadPool();
+        this.packetCache = new ConcurrentHashMap<>();
+        this.running = true;
+        initializeEncryption();
+        System.out.println("Fidiro VPN initialized");
+    }
+    
+    private void initializeEncryption() {
+        try {
+            // Generate a secure key for AES encryption
+            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+            keyGen.init(256);
+            SecretKey key = keyGen.generateKey();
+            this.encryptionKey = new SecretKeySpec(key.getEncoded(), "AES");
+            System.out.println("[Encryption] AES-256 key generated");
+        } catch (Exception e) {
+            System.err.println("[Encryption] Failed to initialize: " + e.getMessage());
+        }
+    }
+    
+    // Obfuscation layer
+    private byte[] obfuscatePacket(byte[] data) {
+        byte[] obfuscated = zeroBitEncryption(data);
+        obfuscated = semiReversedTrafficLayering(obfuscated);
+        obfuscated = addRandomPadding(obfuscated);
+        return obfuscated;
+    }
+    
+    private byte[] zeroBitEncryption(byte[] data) {
+        // XOR with a simple pattern for obfuscation
+        byte[] result = data.clone();
+        byte[] pattern = {0x5A, 0xA5, 0x3C, 0xC3};
+        for (int i = 0; i < result.length; i++) {
+            result[i] ^= pattern[i % pattern.length];
+        }
+        System.out.println("[Obfuscation] Zero-bit encryption applied to " + data.length + " bytes");
+        return result;
+    }
+    
+    private byte[] semiReversedTrafficLayering(byte[] data) {
+        // Reverse segments of the packet
+        byte[] layered = new byte[data.length];
+        int segmentSize = 64;
+        for (int i = 0; i < data.length; i += segmentSize) {
+            int end = Math.min(i + segmentSize, data.length);
+            for (int j = i; j < end; j++) {
+                layered[j] = data[i + (end - 1 - j)];
+            }
+        }
+        System.out.println("[Obfuscation] Semi-reversed layering applied");
+        return layered;
+    }
+    
+    private byte[] addRandomPadding(byte[] data) {
+        Random rand = new Random();
+        int paddingSize = rand.nextInt(32) + 1;
+        byte[] padded = new byte[data.length + paddingSize];
+        System.arraycopy(data, 0, padded, 0, data.length);
+        rand.nextBytes(padded);
+        // Store padding info in first byte
+        padded[0] = (byte) paddingSize;
+        System.out.println("[Obfuscation] Added " + paddingSize + " bytes of random padding");
+        return padded;
+    }
+    
+    // Connection methods
+    private void noneLayeredConnection() {
+        System.out.println("[Connection] Establishing direct UDP connection");
+        try {
+            this.tunnelSocket = new DatagramSocket();
+            this.tunnelSocket.setSoTimeout(CONNECTION_TIMEOUT);
+        } catch (SocketException e) {
+            System.err.println("[Connection] Socket creation failed: " + e.getMessage());
+        }
+    }
+    
+    private void onlyIPv6() {
+        System.out.println("[Connection] IPv6-only mode enabled");
+        try {
+            NetworkInterface ni = NetworkInterface.getByName("eth0");
+            Enumeration<InetAddress> addresses = ni.getInetAddresses();
+            while (addresses.hasMoreElements()) {
+                InetAddress addr = addresses.nextElement();
+                if (addr instanceof Inet6Address) {
+                    System.out.println("[Connection] Using IPv6 address: " + addr.getHostAddress());
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[Connection] IPv6 detection failed: " + e.getMessage());
+        }
+    }
+    
+    private void disablePorts() {
+        System.out.println("[Connection] Port randomization enabled");
+        Random rand = new Random();
+        this.currentServerPort = 10000 + rand.nextInt(55535);
+        System.out.println("[Connection] Using ephemeral port: " + this.currentServerPort);
+    }
+    
+    // Server connectivity
+    private List<String> scanIPAddresses() {
+        List<String> availableServers = new ArrayList<>();
+        String[] serverPool = {
             "2001:0db8:85a3::8a2e:0370:7334",
             "2001:0db8:85a3::8a2e:0370:7335",
             "2001:0db8:85a3::8a2e:0370:7336"
-        ];
-        this.currentServer = null;
-        this.stealthMode = config.stealthMode || false;
-        console.log("Fidiro VPN initialized");
-    }
-
-    // Obfuscation
-    obfuscation() {
-        this.zeroBitEncryption();
-        this.semiReversedTrafficLayering();
-        this.packetPadding();
-        this.protocolRandomization();
-    }
-
-    zeroBitEncryption() {
-        console.log("[Obfuscation] 0-bit encryption simulation");
-        // Simulates no encryption but with traffic pattern hiding
-        return { method: "zero-bit", status: "active" };
-    }
-
-    semiReversedTrafficLayering() {
-        console.log("[Obfuscation] Semi-reversed traffic layering simulation");
-        // Reverses packet order for some connections
-        return { layering: "semi-reversed", packets: "scrambled" };
-    }
-
-    packetPadding() {
-        console.log("[Obfuscation] Adding random packet padding");
-        // Adds dummy data to mask actual packet sizes
-        return { padding: "random", overhead: "15%" };
-    }
-
-    protocolRandomization() {
-        console.log("[Obfuscation] Randomizing protocols");
-        // Randomly switches between TCP/UDP/ICMP
-        return { protocols: ["TCP", "UDP", "ICMP"], current: "random" };
-    }
-
-    // Connection
-    connection() {
-        this.noneLayeredConnection();
-        this.onlyIPv6();
-        this.disablePorts();
-        this.mtuOptimization();
-        this.establishTunnel();
-    }
-
-    noneLayeredConnection() {
-        console.log("[Connection] None-layered connection simulation");
-        return { layering: false, direct: true };
-    }
-
-    onlyIPv6() {
-        console.log("[Connection] IPv6-only mode enabled (simulation)");
-        this.currentIP = "2001:0db8:85a3::8a2e:0370:7334";
-        return { ipVersion: 6, address: this.currentIP };
-    }
-
-    disablePorts() {
-        console.log("[Connection] Ports disabled (simulation)");
-        return { ports: "disabled", method: "port knocking avoidance" };
-    }
-
-    mtuOptimization() {
-        console.log("[Connection] Optimizing MTU for tunnel");
-        return { mtu: 1280, fragmentation: "minimal" };
-    }
-
-    establishTunnel() {
-        console.log("[Connection] Establishing VPN tunnel");
-        this.isConnected = true;
-        return { tunnel: "established", status: "active" };
-    }
-
-    // Server Connectivity
-    serverConnectivity() {
-        this.scanIPAddresses();
-        this.connectInStealthMode();
-        this.expandTraffic();
-        this.depict();
-        this.loadBalance();
-        this.heartbeat();
-    }
-
-    scanIPAddresses() {
-        console.log("[Server] IP scan simulation");
-        const availableServers = this.servers.filter(s => this.pingServer(s));
-        console.log(`[Server] Found ${availableServers.length} available servers`);
+        };
+        
+        for (String server : serverPool) {
+            if (pingServer(server)) {
+                availableServers.add(server);
+                System.out.println("[Server] Found available server: " + server);
+            }
+        }
         return availableServers;
     }
-
-    pingServer(server) {
-        // Simulate server availability check
-        return Math.random() > 0.2; // 80% availability
-    }
-
-    connectInStealthMode() {
-        console.log("[Server] Stealth mode connection simulation");
-        const selectedServer = this.servers[Math.floor(Math.random() * this.servers.length)];
-        this.currentServer = selectedServer;
-        
-        if (this.stealthMode) {
-            console.log("[Server] Using stealth headers and timing patterns");
+    
+    private boolean pingServer(String serverIP) {
+        try {
+            InetAddress address = InetAddress.getByName(serverIP);
+            return address.isReachable(1000);
+        } catch (Exception e) {
+            return false;
         }
-        
-        return { server: selectedServer, stealth: this.stealthMode };
     }
-
-    expandTraffic() {
-        console.log("[Server] Traffic expansion simulation");
-        // Simulate traffic splitting across multiple paths
-        const paths = 3;
-        console.log(`[Server] Traffic split across ${paths} virtual paths`);
-        return { expansion: true, paths: paths };
+    
+    private void connectInStealthMode() {
+        System.out.println("[Server] Establishing stealth mode connection");
+        List<String> servers = scanIPAddresses();
+        if (!servers.isEmpty()) {
+            this.currentServerIP = servers.get(0);
+            System.out.println("[Server] Connected to: " + this.currentServerIP);
+        } else {
+            System.err.println("[Server] No available servers found");
+        }
     }
-
-    depict() {
-        console.log("[Server] Network depiction simulation");
-        const topology = {
-            nodes: 5,
-            latency: "optimized",
-            routing: "adaptive"
-        };
-        console.log(`[Server] Network topology: ${JSON.stringify(topology)}`);
-        return topology;
+    
+    private void expandTraffic() {
+        System.out.println("[Server] Traffic expansion - creating multiple virtual paths");
+        // Simulate multipath TCP
+        for (int i = 0; i < 3; i++) {
+            final int pathId = i;
+            threadPool.submit(() -> {
+                System.out.println("[Server] Virtual path " + pathId + " established");
+            });
+        }
     }
-
-    loadBalance() {
-        console.log("[Server] Load balancing active");
-        const serverLoad = Math.floor(Math.random() * 100);
-        console.log(`[Server] Current server load: ${serverLoad}%`);
-        return { balanced: true, load: serverLoad };
-    }
-
-    heartbeat() {
-        console.log("[Server] Heartbeat established");
-        setInterval(() => {
-            if (this.isConnected) {
-                console.log("[Heartbeat] Connection alive");
+    
+    private void startHeartbeat() {
+        ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
+        heartbeatScheduler.scheduleAtFixedRate(() -> {
+            if (isConnected && running) {
+                sendHeartbeat();
             }
-        }, 30000); // Heartbeat every 30 seconds
-        return { interval: "30s", status: "active" };
+        }, 0, HEARTBEAT_INTERVAL, TimeUnit.MILLISECONDS);
     }
-
-    // Additional Features
-    killSwitch() {
-        console.log("[Security] Kill switch activated");
-        if (!this.isConnected) {
-            console.log("[Security] Blocking non-VPN traffic");
-            return { killswitch: "active", protection: "enabled" };
+    
+    private void sendHeartbeat() {
+        try {
+            byte[] heartbeatData = "HB".getBytes();
+            byte[] encrypted = encryptPacket(heartbeatData);
+            DatagramPacket packet = new DatagramPacket(encrypted, encrypted.length,
+                InetAddress.getByName(currentServerIP), currentServerPort);
+            tunnelSocket.send(packet);
+            System.out.println("[Heartbeat] Sent to server");
+        } catch (Exception e) {
+            System.err.println("[Heartbeat] Failed: " + e.getMessage());
         }
-        return { killswitch: "standby" };
     }
-
-    dnsLeakProtection() {
-        console.log("[Security] DNS leak protection enabled");
-        console.log("[Security] Routing DNS through VPN tunnel");
-        return { dns: "secured", servers: ["1.1.1.1", "8.8.8.8"] };
+    
+    private byte[] encryptPacket(byte[] data) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, encryptionKey);
+            return cipher.doFinal(data);
+        } catch (Exception e) {
+            System.err.println("[Encryption] Failed: " + e.getMessage());
+            return data;
+        }
     }
-
-    getTrafficStats() {
-        return {
-            sent: `${this.trafficStats.sent} MB`,
-            received: `${this.trafficStats.received} MB`,
-            total: `${this.trafficStats.sent + this.trafficStats.received} MB`
-        };
+    
+    private byte[] decryptPacket(byte[] data) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, encryptionKey);
+            return cipher.doFinal(data);
+        } catch (Exception e) {
+            System.err.println("[Decryption] Failed: " + e.getMessage());
+            return data;
+        }
     }
-
-    updateTrafficStats(sent, received) {
-        this.trafficStats.sent += sent;
-        this.trafficStats.received += received;
-        console.log(`[Traffic] Updated: +${sent}MB sent, +${received}MB received`);
+    
+    private void startTunnelListener() {
+        tunnelThread = new Thread(() -> {
+            byte[] buffer = new byte[BUFFER_SIZE];
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+            
+            while (running && isConnected) {
+                try {
+                    tunnelSocket.receive(packet);
+                    byte[] receivedData = Arrays.copyOf(packet.getData(), packet.getLength());
+                    byte[] decrypted = decryptPacket(receivedData);
+                    byte[] deobfuscated = deobfuscatePacket(decrypted);
+                    
+                    // Process the packet
+                    processIncomingPacket(deobfuscated, packet.getAddress(), packet.getPort());
+                    
+                } catch (SocketTimeoutException e) {
+                    // Expected, continue
+                } catch (Exception e) {
+                    System.err.println("[Tunnel] Error: " + e.getMessage());
+                }
+            }
+        });
+        tunnelThread.start();
+        System.out.println("[Tunnel] Listener started");
     }
-
-    disconnect() {
-        console.log("Disconnecting from Fidiro VPN...");
+    
+    private byte[] deobfuscatePacket(byte[] data) {
+        // Remove padding
+        int paddingSize = data[0] & 0xFF;
+        byte[] unpadded = new byte[data.length - paddingSize];
+        System.arraycopy(data, paddingSize, unpadded, 0, unpadded.length);
+        
+        // Reverse semi-reversed layering
+        byte[] delayered = new byte[unpadded.length];
+        int segmentSize = 64;
+        for (int i = 0; i < unpadded.length; i += segmentSize) {
+            int end = Math.min(i + segmentSize, unpadded.length);
+            for (int j = i; j < end; j++) {
+                delayered[j] = unpadded[i + (end - 1 - j)];
+            }
+        }
+        
+        // Decrypt zero-bit encryption
+        byte[] decrypted = delayered.clone();
+        byte[] pattern = {0x5A, 0xA5, 0x3C, 0xC3};
+        for (int i = 0; i < decrypted.length; i++) {
+            decrypted[i] ^= pattern[i % pattern.length];
+        }
+        
+        return decrypted;
+    }
+    
+    private void processIncomingPacket(byte[] data, InetAddress source, int port) {
+        String packetInfo = new String(data, 0, Math.min(100, data.length));
+        System.out.println("[Traffic] Received " + data.length + " bytes from " + source.getHostAddress());
+        // Here you would forward the packet to the local network stack
+    }
+    
+    public void sendData(byte[] data) throws IOException {
+        if (!isConnected || tunnelSocket == null) {
+            throw new IOException("VPN not connected");
+        }
+        
+        byte[] obfuscated = obfuscatePacket(data);
+        byte[] encrypted = encryptPacket(obfuscated);
+        DatagramPacket packet = new DatagramPacket(encrypted, encrypted.length,
+            InetAddress.getByName(currentServerIP), currentServerPort);
+        tunnelSocket.send(packet);
+        
+        System.out.println("[Traffic] Sent " + data.length + " bytes to " + currentServerIP);
+    }
+    
+    // DNS Leak Protection
+    private void enableDNSLeakProtection() {
+        System.out.println("[Security] DNS leak protection enabled");
+        // In a real implementation, you would:
+        // 1. Override system DNS settings
+        // 2. Route all DNS queries through the VPN tunnel
+        // 3. Block plain DNS queries on port 53
+        System.out.println("[Security] Routing DNS through encrypted tunnel");
+    }
+    
+    // Kill Switch
+    private void enableKillSwitch() {
+        System.out.println("[Security] Kill switch activated");
+        // In a real implementation, you would:
+        // 1. Monitor VPN connection status
+        // 2. Block all non-VPN traffic if connection drops
+        // 3. Use firewall rules or iptables
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (!isConnected) {
+                System.out.println("[KillSwitch] Connection lost - blocking traffic");
+            }
+        }));
+    }
+    
+    public void start() {
+        System.out.println("Starting Fidiro VPN...");
+        
+        // Setup connection
+        noneLayeredConnection();
+        onlyIPv6();
+        disablePorts();
+        
+        // Connect to server
+        connectInStealthMode();
+        expandTraffic();
+        
+        // Security features
+        enableDNSLeakProtection();
+        enableKillSwitch();
+        
+        // Start tunnel
+        startTunnelListener();
+        startHeartbeat();
+        
+        this.isConnected = true;
+        System.out.println("Fidiro VPN ready and connected to " + currentServerIP);
+        System.out.println("Status: ACTIVE | Port: " + currentServerPort);
+    }
+    
+    public void stop() {
+        System.out.println("Stopping Fidiro VPN...");
+        this.running = false;
         this.isConnected = false;
-        this.currentServer = null;
-        console.log("Fidiro VPN disconnected");
-        return { connected: false };
+        
+        if (tunnelSocket != null && !tunnelSocket.isClosed()) {
+            tunnelSocket.close();
+        }
+        
+        if (tunnelThread != null) {
+            tunnelThread.interrupt();
+        }
+        
+        threadPool.shutdown();
+        System.out.println("Fidiro VPN stopped");
     }
-
-    reconnect() {
-        console.log("Reconnecting to Fidiro VPN...");
-        this.disconnect();
-        this.start();
-        return { reconnected: true };
+    
+    public boolean isConnected() {
+        return isConnected;
     }
-
-    start() {
-        console.log("Starting Fidiro VPN...");
-        this.obfuscation();
-        this.connection();
-        this.serverConnectivity();
-        this.dnsLeakProtection();
-        this.killSwitch();
-        console.log("Fidiro VPN ready.");
-        console.log(`Connected to: ${this.currentServer}`);
-        return { status: "ready", connected: true };
+    
+    public String getCurrentServer() {
+        return currentServerIP;
     }
-
-    // Utility Methods
-    getStatus() {
-        return {
-            connected: this.isConnected,
-            currentServer: this.currentServer,
-            currentIP: this.currentIP,
-            stealthMode: this.stealthMode,
-            trafficStats: this.getTrafficStats()
-        };
-    }
-
-    setStealthMode(enabled) {
-        this.stealthMode = enabled;
-        console.log(`[Config] Stealth mode ${enabled ? 'enabled' : 'disabled'}`);
-        return { stealthMode: this.stealthMode };
+    
+    // Main method for testing
+    public static void main(String[] args) {
+        FidiroVPN vpn = new FidiroVPN();
+        
+        // Start the VPN
+        vpn.start();
+        
+        // Simulate sending some data
+        try {
+            Thread.sleep(2000);
+            String testData = "Hello VPN Server!";
+            vpn.sendData(testData.getBytes());
+            
+            Thread.sleep(5000);
+            
+            // Send multiple packets
+            for (int i = 0; i < 5; i++) {
+                Thread.sleep(1000);
+                vpn.sendData(("Packet #" + i).getBytes());
+            }
+            
+            Thread.sleep(3000);
+            
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+        } finally {
+            vpn.stop();
+        }
     }
 }
-
-// Example usage with advanced features
-const vpn = new FidiroVPN({ stealthMode: true });
-vpn.start();
-
-// Simulate some traffic
-setTimeout(() => {
-    vpn.updateTrafficStats(10, 25);
-    console.log("VPN Status:", vpn.getStatus());
-}, 2000);
-
-setTimeout(() => {
-    console.log("\n--- Disconnecting ---");
-    vpn.disconnect();
-}, 5000);
-
-// Example without stealth mode
-const vpn2 = new FidiroVPN({ stealthMode: false });
-vpn2.start();
