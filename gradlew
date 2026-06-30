@@ -169,6 +169,4 @@ if [ "$(uname)" = "Darwin" ] && [ "$HOME" = "$PWD" ]; then
   cd "$(dirname "$0")"
 fi
 
-exec "$JAVACMD" "$@"task wrapper(type: Wrapper) {
-    gradleVersion = '4.10.1'
-}
+exec "$JAVACMD" "$@"
