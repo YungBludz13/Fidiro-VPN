@@ -1,0 +1,10 @@
+# Tag creation trigger
+name: Create Release Tag
+on: workflow_dispatch
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git tag v1.0.1
+      - run: git push origin v1.0.1
